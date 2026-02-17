@@ -125,6 +125,8 @@ async def end_voting(update, context):
     await update.message.reply_text("Selección cerrada")
     await msg_to_active_pycamp_chat(context.bot, "La selección de proyectos ha finalizado.")
 
+
+@admin_needed
 async def vote_count(update, context):
     votes = [vote.pycampista_id for vote in Vote.select()]
     vote_count = len(set(votes))

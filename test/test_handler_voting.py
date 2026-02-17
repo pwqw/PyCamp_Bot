@@ -134,6 +134,7 @@ class TestVoteCount:
 
     @use_test_database_async
     async def test_counts_unique_voters(self):
+        Pycampista.create(username="admin1", admin=True)
         owner = Pycampista.create(username="owner1")
         v1 = Pycampista.create(username="voter1")
         v2 = Pycampista.create(username="voter2")
@@ -143,7 +144,7 @@ class TestVoteCount:
         Vote.create(project=p2, pycampista=v1, interest=True, _project_pycampista_id=f"{p2.id}-{v1.id}")
         Vote.create(project=p1, pycampista=v2, interest=True, _project_pycampista_id=f"{p1.id}-{v2.id}")
 
-        update = make_update(text="/contar_votos")
+        update = make_update(text="/contar_votos", username="admin1")
         context = make_context()
         await vote_count(update, context)
         text = context.bot.send_message.call_args[1]["text"]
@@ -151,8 +152,19 @@ class TestVoteCount:
 
     @use_test_database_async
     async def test_zero_votes(self):
-        update = make_update(text="/contar_votos")
+        Pycampista.create(username="admin1", admin=True)
+        update = make_update(text="/contar_votos", username="admin1")
         context = make_context()
         await vote_count(update, context)
         text = context.bot.send_message.call_args[1]["text"]
         assert "0" in text
+
+    @use_test_database_async
+    async def test_contar_votos_rejects_non_admin(self):
+        Pycampista.create(username="user1", admin=False)
+        update = make_update(text="/contar_votos", username="user1")
+        context = make_context()
+        await vote_count(update, context)
+        context.bot.send_message.assert_called_once()
+        text = context.bot.send_message.call_args[1]["text"]
+        assert "No estas Autorizadx" in text
