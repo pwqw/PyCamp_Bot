@@ -30,15 +30,14 @@ def get_active_pycamp():
 
 
 def active_needed(f):
-    def wrap(*args, **kargs):
-        bot, update = args
+    async def wrap(*args, **kargs):
+        update, context = args[0], args[1]
         is_active, _ = get_active_pycamp()
         if is_active:
-            return f(*args)
-        else:
-            bot.send_message(
-                chat_id=update.message.chat_id,
-                text="No hay un PyCamp activo.")
+            return await f(*args, **kargs)
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text="No hay un PyCamp activo.")
     return wrap
 
 
@@ -231,7 +230,7 @@ async def list_pycampistas(update, context):
         text.append(str(pap.pycampista))
 
     text = "\n\n".join(text)
-    await update.message.reply_text(text + len(pycampistas_at_pycamp))
+    await update.message.reply_text(text + "\n\nTotal: " + str(len(pycampistas_at_pycamp)))
 
 
 def set_handlers(application):
