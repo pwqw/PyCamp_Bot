@@ -1,11 +1,14 @@
 import peewee
+from peewee import JOIN
 from telegram.ext import ConversationHandler
 from pycamp_bot.models import Pycampista, Pycamp, Project, Vote, Slot
 from pycamp_bot.commands.projects import (
     load_project, naming_project, project_level, project_topic,
     save_project, ask_if_repository_exists, ask_if_group_exists,
     project_repository, project_group, cancel,
-    delete_project, show_projects, show_participants,
+    ask_project_name, ask_repository_url, ask_group_url,
+    add_repository, add_group,
+    delete_project, show_projects, show_participants, show_my_projects,
     start_project_load, end_project_load,
     current_projects,
     NOMBRE, DIFICULTAD, TOPIC, CHECK_REPOSITORIO, REPOSITORIO, CHECK_GRUPO, GRUPO,
@@ -314,6 +317,138 @@ class TestStartEndProjectLoad:
         await end_project_load(update, context)
         pycamp = Pycamp.get(Pycamp.active == True)
         assert pycamp.project_load_authorized is False
+
+
+class TestShowMyProjects:
+
+    @use_test_database_async
+    async def test_shows_voted_projects(self):
+        owner = Pycampista.create(username="pepe")
+        voter = Pycampista.create(username="juan", chat_id="111")
+        project = Project.create(name="MiProj", owner=owner, topic="test")
+        Vote.create(
+            project=project, pycampista=voter, interest=True,
+            _project_pycampista_id=f"{project.id}-{voter.id}",
+        )
+        update = make_update(text="/mis_proyectos", username="juan")
+        context = make_context()
+        await show_my_projects(update, context)
+        text = update.message.reply_text.call_args[0][0]
+        assert "MiProj" in text
+
+    @use_test_database_async
+    async def test_no_votes_shows_message(self):
+        Pycampista.create(username="pepe")
+        update = make_update(text="/mis_proyectos", username="pepe")
+        context = make_context()
+        await show_my_projects(update, context)
+        text = update.message.reply_text.call_args[0][0]
+        assert "No votaste" in text
+
+    @use_test_database_async
+    async def test_shows_projects_with_assigned_slots(self):
+        import datetime as dt
+        Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=dt.datetime(2024, 6, 20),
+        )
+        owner = Pycampista.create(username="pepe")
+        voter = Pycampista.create(username="juan", chat_id="111")
+        slot_a1 = Slot.create(code="A1", start=9)
+        project = Project.create(
+            name="MiProj", owner=owner, topic="test", slot=slot_a1,
+        )
+        Vote.create(
+            project=project, pycampista=voter, interest=True,
+            _project_pycampista_id=f"{project.id}-{voter.id}",
+        )
+        update = make_update(text="/mis_proyectos", username="juan")
+        context = make_context()
+        await show_my_projects(update, context)
+        text = update.message.reply_text.call_args[0][0]
+        assert "MiProj" in text
+        assert "9:00" in text
+
+
+class TestAskProjectName:
+
+    @use_test_database_async
+    async def test_shows_user_projects_for_selection(self):
+        Pycamp.create(headquarters="Narnia", active=True)
+        owner = Pycampista.create(username="pepe")
+        Project.create(name="Proj1", owner=owner, topic="test")
+        Project.create(name="Proj2", owner=owner, topic="test")
+        update = make_update(text="/agregar_repositorio", username="pepe")
+        context = make_context()
+        result = await ask_project_name(update, context)
+        assert result == 1
+        assert "modificar" in context.bot.send_message.call_args[1]["text"]
+
+    @use_test_database_async
+    async def test_no_projects_shows_message(self):
+        Pycamp.create(headquarters="Narnia", active=True)
+        Pycampista.create(username="pepe")
+        update = make_update(text="/agregar_repositorio", username="pepe")
+        context = make_context()
+        result = await ask_project_name(update, context)
+        assert result == ConversationHandler.END
+        assert "No cargaste" in context.bot.send_message.call_args[1]["text"]
+
+
+class TestAskRepositoryUrl:
+
+    @use_test_database_async
+    async def test_stores_project_id_and_asks_url(self):
+        update = make_callback_update(data="projectname:42", username="pepe")
+        context = make_context()
+        result = await ask_repository_url(update, context)
+        assert result == 2
+        assert current_projects["pepe"] == "42"
+        assert "URL" in context.bot.send_message.call_args[1]["text"]
+
+
+class TestAskGroupUrl:
+
+    @use_test_database_async
+    async def test_stores_project_id_and_asks_url(self):
+        update = make_callback_update(data="projectname:42", username="pepe")
+        context = make_context()
+        result = await ask_group_url(update, context)
+        assert result == 2
+        assert current_projects["pepe"] == "42"
+        assert "URL" in context.bot.send_message.call_args[1]["text"]
+
+
+class TestAddRepository:
+
+    @use_test_database_async
+    async def test_adds_repository_url(self):
+        owner = Pycampista.create(username="pepe")
+        project = Project.create(name="Proj1", owner=owner, topic="test")
+        current_projects["pepe"] = str(project.id)
+        update = make_update(text="https://github.com/mi-repo", username="pepe")
+        context = make_context()
+        result = await add_repository(update, context)
+        assert result == ConversationHandler.END
+        proj = Project.get(Project.id == project.id)
+        assert proj.repository_url == "https://github.com/mi-repo"
+        assert "Repositorio agregado" in context.bot.send_message.call_args[1]["text"]
+
+
+class TestAddGroup:
+
+    @use_test_database_async
+    async def test_adds_group_url(self):
+        owner = Pycampista.create(username="pepe")
+        project = Project.create(name="Proj1", owner=owner, topic="test")
+        current_projects["pepe"] = str(project.id)
+        update = make_update(text="https://t.me/grupo", username="pepe")
+        context = make_context()
+        result = await add_group(update, context)
+        assert result == ConversationHandler.END
+        proj = Project.get(Project.id == project.id)
+        assert proj.group_url == "https://t.me/grupo"
+        assert "Grupo agregado" in context.bot.send_message.call_args[1]["text"]
 
 
 class TestCancelProject:

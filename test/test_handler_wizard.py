@@ -1,3 +1,4 @@
+"""Tests para handlers de wizard.py: /ser_magx, /ver_magx, /evocar_magx, /agendar_magx, /ver_agenda_magx."""
 from datetime import datetime
 from freezegun import freeze_time
 from pycamp_bot.models import Pycampista, Pycamp, PycampistaAtPycamp, WizardAtPycamp
@@ -54,6 +55,17 @@ class TestListWizards:
         text = context.bot.send_message.call_args[1]["text"]
         assert "@gandalf" in text
         assert "@merlin" in text
+
+    @use_test_database_async
+    async def test_empty_list(self):
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        update = make_update(text="/ver_magx", username="admin1")
+        context = make_context()
+        # list_wizards con msg vacío: BadRequest se ignora internamente
+        await list_wizards(update, context, pycamp=p)
 
 
 class TestSummonWizard:
@@ -119,6 +131,73 @@ class TestScheduleWizards:
         await schedule_wizards(update, context, pycamp=p)
         assert WizardAtPycamp.select().where(WizardAtPycamp.pycamp == p).count() > 0
 
+    @use_test_database_async
+    async def test_clears_previous_schedule(self):
+        """Agendar de nuevo borra la agenda anterior."""
+        Pycampista.create(username="admin1", admin=True)
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        w = p.add_wizard("gandalf", "111")
+        # Primera agenda
+        persist_wizards_schedule_in_db(p)
+        count1 = WizardAtPycamp.select().where(WizardAtPycamp.pycamp == p).count()
+        # Segunda agenda via handler
+        update = make_update(text="/agendar_magx", username="admin1")
+        context = make_context()
+        await schedule_wizards(update, context, pycamp=p)
+        count2 = WizardAtPycamp.select().where(WizardAtPycamp.pycamp == p).count()
+        assert count2 == count1  # misma cantidad, no acumulada
+
+
+class TestShowWizardsSchedule:
+
+    @use_test_database_async
+    @freeze_time("2024-06-21 10:00:00")
+    async def test_shows_remaining_schedule(self):
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        w = p.add_wizard("gandalf", "111")
+        persist_wizards_schedule_in_db(p)
+
+        update = make_update(text="/ver_agenda_magx", username="pepe")
+        context = make_context()
+        await show_wizards_schedule(update, context, pycamp=p)
+        text = context.bot.send_message.call_args[1]["text"]
+        assert "Agenda" in text or "magx" in text.lower()
+
+    @use_test_database_async
+    @freeze_time("2024-06-21 10:00:00")
+    async def test_shows_complete_schedule_with_flag(self):
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        w = p.add_wizard("gandalf", "111")
+        persist_wizards_schedule_in_db(p)
+
+        update = make_update(text="/ver_agenda_magx completa", username="pepe")
+        context = make_context()
+        await show_wizards_schedule(update, context, pycamp=p)
+        text = context.bot.send_message.call_args[1]["text"]
+        assert "Agenda" in text or "magx" in text.lower()
+
+    @use_test_database_async
+    async def test_wrong_parameter_shows_error(self):
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        update = make_update(text="/ver_agenda_magx basura", username="pepe")
+        context = make_context()
+        context.args = ["basura"]
+        await show_wizards_schedule(update, context, pycamp=p)
+        text = context.bot.send_message.call_args[1]["text"]
+        assert "parámetro" in text.lower() or "completa" in text.lower()
+
 
 class TestFormatWizardsSchedule:
 
@@ -140,25 +219,40 @@ class TestFormatWizardsSchedule:
         assert "@gandalf" in msg
         assert "09:00" in msg
 
+    @use_test_database
+    def test_empty_agenda(self):
+        p = Pycamp.create(
+            headquarters="Narnia",
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        agenda = WizardAtPycamp.select().where(WizardAtPycamp.pycamp == p)
+        msg = format_wizards_schedule(agenda)
+        assert "Agenda de magxs" in msg
+
 
 class TestAuxResolveShowAll:
+    """aux_resolve_show_all recibe context (con context.args)."""
 
-    @use_test_database_async
-    async def test_no_parameter_returns_false(self):
+    def test_no_parameter_returns_false(self):
         context = make_context()
         context.args = []
         assert aux_resolve_show_all(context) is False
 
-    @use_test_database_async
-    async def test_completa_returns_true(self):
+    def test_completa_returns_true(self):
         context = make_context()
         context.args = ["completa"]
         assert aux_resolve_show_all(context) is True
 
-    @use_test_database_async
-    async def test_wrong_parameter_raises(self):
+    def test_wrong_parameter_raises(self):
         import pytest
         context = make_context()
         context.args = ["basura"]
+        with pytest.raises(ValueError):
+            aux_resolve_show_all(context)
+
+    def test_too_many_parameters_raises(self):
+        import pytest
+        context = make_context()
+        context.args = ["completa", "extra"]
         with pytest.raises(ValueError):
             aux_resolve_show_all(context)

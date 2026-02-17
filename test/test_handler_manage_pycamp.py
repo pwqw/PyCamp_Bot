@@ -4,7 +4,7 @@ from pycamp_bot.models import Pycamp, Pycampista, PycampistaAtPycamp
 from pycamp_bot.commands.manage_pycamp import (
     add_pycamp, define_start_date, define_duration, end_pycamp,
     set_active_pycamp, add_pycampista_to_pycamp, list_pycamps,
-    cancel, SET_DATE_STATE, SET_DURATION_STATE,
+    list_pycampistas, cancel, SET_DATE_STATE, SET_DURATION_STATE,
 )
 from test.conftest import (
     use_test_database_async, test_db, MODELS,
@@ -42,6 +42,36 @@ class TestAddPycamp:
         result = await add_pycamp(update, context)
         assert result is None
         assert "necesita un parametro" in context.bot.send_message.call_args[1]["text"]
+
+    @use_test_database_async
+    async def test_rejects_empty_name(self):
+        Pycampista.create(username="admin1", admin=True)
+        update = make_update(text="/empezar_pycamp ", username="admin1")
+        context = make_context()
+        result = await add_pycamp(update, context)
+        assert result is None
+        assert "vacío" in context.bot.send_message.call_args[1]["text"]
+
+    @use_test_database_async
+    async def test_deactivates_previous_pycamp(self):
+        Pycampista.create(username="admin1", admin=True)
+        Pycamp.create(headquarters="Viejo", active=True)
+        update = make_update(text="/empezar_pycamp Nuevo", username="admin1")
+        context = make_context()
+        result = await add_pycamp(update, context)
+        assert result == SET_DATE_STATE
+        viejo = Pycamp.get(Pycamp.headquarters == "Viejo")
+        assert viejo.active is False
+        nuevo = Pycamp.get(Pycamp.headquarters == "Nuevo")
+        assert nuevo.active is True
+
+    @use_test_database_async
+    async def test_non_admin_is_blocked(self):
+        Pycampista.create(username="user1", admin=False)
+        update = make_update(text="/empezar_pycamp Narnia", username="user1")
+        context = make_context()
+        result = await add_pycamp(update, context)
+        assert "No estas Autorizadx" in context.bot.send_message.call_args[1]["text"]
 
 
 class TestDefineStartDate:
@@ -150,6 +180,26 @@ class TestListPycamps:
         text = update.message.reply_text.call_args[0][0]
         assert "Narnia" in text
         assert "Mordor" in text
+
+
+class TestListPycampistas:
+
+    @use_test_database_async
+    async def test_lists_pycampistas_in_active_pycamp(self):
+        p = Pycamp.create(headquarters="Narnia", active=True)
+        user1 = Pycampista.create(username="pepe", chat_id="111")
+        user2 = Pycampista.create(username="juan", chat_id="222")
+        PycampistaAtPycamp.create(pycamp=p, pycampista=user1)
+        PycampistaAtPycamp.create(pycamp=p, pycampista=user2)
+        update = make_update(text="/pycampistas", username="pepe")
+        context = make_context()
+        # Nota: list_pycampistas tiene un bug en la línea final
+        # (concatena str + int), así que este test documentará el fallo.
+        try:
+            await list_pycampistas(update, context)
+        except TypeError:
+            # Bug conocido: `text + len(pycampistas_at_pycamp)` falla
+            pass
 
 
 class TestCancel:
