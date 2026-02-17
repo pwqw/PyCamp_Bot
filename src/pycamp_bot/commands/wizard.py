@@ -287,7 +287,7 @@ def aux_resolve_show_all(context):
 @active_pycamp_needed
 async def show_wizards_schedule(update, context, pycamp=None):
     try:
-        show_all = aux_resolve_show_all(update.message)
+        show_all = aux_resolve_show_all(context)
     except ValueError:
         await context.bot.send_message(
             chat_id=update.message.chat_id,
