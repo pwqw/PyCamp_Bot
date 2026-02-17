@@ -49,16 +49,19 @@ El Dockerfile usa `python:3.10-slim` para balance óptimo entre tamaño (~150MB)
 
 ### Testing
 
-#### Local
+**Los comandos del proyecto (bot, tests) se ejecutan dentro del contenedor** cuando se usa el Makefile.
+
+#### Con Docker (recomendado)
 ```bash
-pytest                           # Todos los tests
-pytest test/test_wizard.py       # Test específico
-pytest -v                        # Modo verbose
+make test     # Ejecuta pytest en el contenedor
+make test-cov # pytest con reporte de cobertura (--cov=pycamp_bot)
 ```
 
-#### Con Docker
+#### Local (con venv activo)
 ```bash
-make test                        # Ejecuta pytest en contenedor
+pytest                     # Todos los tests
+pytest test/test_wizard.py  # Test específico
+pytest -v                   # Modo verbose
 ```
 
 ### Linting
