@@ -1,13 +1,16 @@
-import random
 from collections import defaultdict
 from datetime import datetime, timedelta
 from itertools import cycle
-from telegram.ext import CommandHandler
+import random
+from zoneinfo import ZoneInfo
+
 from telegram.error import BadRequest
-from pycamp_bot.models import Pycampista, WizardAtPycamp
+from telegram.ext import CommandHandler
+
 from pycamp_bot.commands.auth import admin_needed
 from pycamp_bot.commands.manage_pycamp import get_active_pycamp
 from pycamp_bot.logger import logger
+from pycamp_bot.models import Pycampista, WizardAtPycamp
 from pycamp_bot.utils import escape_markdown, active_pycamp_needed
 
 
@@ -264,18 +267,20 @@ def format_wizards_schedule(agenda):
             )
     return msg
 
-def aux_resolve_show_all(message):
-    show_all = False
-    parameters = message.text.strip().split(' ', 1)
-    if len(parameters) == 2:
-        flag = parameters[1].strip().lower()
-        show_all = (flag == "completa")  # Once here, the only parameter must be valid
-        if not show_all:
-            # The parameter was something else...
+def aux_resolve_show_all(context):
+    """Usa context.args: sin args o 'completa' = agenda completa; 'futuros' = solo turnos futuros."""
+    show_all = True  # por defecto mostrar toda la agenda (evita problemas de timezone en containers)
+    args = (context.args or [])
+    if len(args) == 1:
+        flag = args[0].strip().lower()
+        if flag == "completa":
+            show_all = True
+        elif flag == "futuros":
+            show_all = False
+        else:
             raise ValueError("Wrong parameter")
-    elif len(parameters) > 2:
-        # Too many parameters...
-        raise ValueError("Wrong parameter")
+    elif len(args) > 1:
+        raise ValueError("Too many parameters")
     return show_all
 
 
@@ -286,22 +291,41 @@ async def show_wizards_schedule(update, context, pycamp=None):
     except ValueError:
         await context.bot.send_message(
             chat_id=update.message.chat_id,
-            text="El comando solo acepta un parámetro (opcional): 'completa'. ¿Probás de nuevo?",
+            text="El comando acepta un parámetro opcional: 'completa' (ver todo) o 'futuros' (solo turnos por venir). ¿Probás de nuevo?",
         )
         return
 
     agenda = WizardAtPycamp.select().where(WizardAtPycamp.pycamp == pycamp)
     if not show_all:
-        agenda = agenda.where(WizardAtPycamp.end > datetime.now())
+        # Solo futuros: comparar con hora Argentina (los slots en DB son hora local Córdoba)
+        now_argentina = datetime.now(ZoneInfo("America/Argentina/Cordoba")).replace(tzinfo=None)
+        agenda = agenda.where(WizardAtPycamp.end > now_argentina)
     agenda = agenda.order_by(WizardAtPycamp.init)
 
-    msg = format_wizards_schedule(agenda)
-    
-    await context.bot.send_message(
-        chat_id=update.message.chat_id,
-        text=msg,
-        parse_mode="MarkdownV2"
-    )
+    count = agenda.count()
+    if count == 0:
+        if show_all:
+            msg = (
+                "Agenda de magxs:\n\n"
+                "No hay turnos cargados. Un admin debe ejecutar /agendar_magx "
+                "después de que magxs se anoten con /ser_magx."
+            )
+        else:
+            msg = (
+                "Agenda de magxs:\n\n"
+                "No hay turnos futuros. Probá con /ver_agenda_magx completa para ver toda la agenda."
+            )
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text=msg,
+        )
+    else:
+        msg = format_wizards_schedule(agenda)
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text=msg,
+            parse_mode="MarkdownV2",
+        )
     logger.debug("Wizards schedule delivered to {}".format(update.message.from_user.username))
 
 
