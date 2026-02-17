@@ -198,6 +198,37 @@ class TestShowWizardsSchedule:
         text = context.bot.send_message.call_args[1]["text"]
         assert "parámetro" in text.lower() or "completa" in text.lower()
 
+    @use_test_database_async
+    async def test_empty_agenda_sends_hint_without_parse_mode(self):
+        """Sin turnos se envía hint en texto plano (sin MarkdownV2) para evitar BadRequest por '.'."""
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2024, 6, 20), end=datetime(2024, 6, 23),
+        )
+        # Sin magxs ni /agendar_magx no hay WizardAtPycamp
+        update = make_update(text="/ver_agenda_magx", username="pepe")
+        context = make_context()
+        await show_wizards_schedule(update, context, pycamp=p)
+        kwargs = context.bot.send_message.call_args[1]
+        assert "No hay turnos cargados" in kwargs["text"]
+        assert kwargs.get("parse_mode") is None
+
+    @use_test_database_async
+    @freeze_time("2024-06-21 10:00:00")
+    async def test_empty_futuros_sends_hint_without_parse_mode(self):
+        """Con 'futuros' y sin turnos futuros, hint en texto plano."""
+        p = Pycamp.create(
+            headquarters="Narnia", active=True,
+            init=datetime(2020, 1, 1), end=datetime(2020, 1, 2),
+        )
+        update = make_update(text="/ver_agenda_magx futuros", username="pepe")
+        context = make_context()
+        context.args = ["futuros"]
+        await show_wizards_schedule(update, context, pycamp=p)
+        kwargs = context.bot.send_message.call_args[1]
+        assert "No hay turnos futuros" in kwargs["text"]
+        assert kwargs.get("parse_mode") is None
+
 
 class TestFormatWizardsSchedule:
 
@@ -233,15 +264,20 @@ class TestFormatWizardsSchedule:
 class TestAuxResolveShowAll:
     """aux_resolve_show_all recibe context (con context.args)."""
 
-    def test_no_parameter_returns_false(self):
+    def test_no_parameter_returns_true(self):
         context = make_context()
         context.args = []
-        assert aux_resolve_show_all(context) is False
+        assert aux_resolve_show_all(context) is True  # por defecto se muestra agenda completa
 
     def test_completa_returns_true(self):
         context = make_context()
         context.args = ["completa"]
         assert aux_resolve_show_all(context) is True
+
+    def test_futuros_returns_false(self):
+        context = make_context()
+        context.args = ["futuros"]
+        assert aux_resolve_show_all(context) is False
 
     def test_wrong_parameter_raises(self):
         import pytest
