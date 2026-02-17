@@ -264,25 +264,25 @@ def format_wizards_schedule(agenda):
             )
     return msg
 
-def aux_resolve_show_all(message):
+def aux_resolve_show_all(context):
+    """Usa context.args para detectar 'completa' (evita problemas con @bot en grupos)."""
     show_all = False
-    parameters = message.text.strip().split(' ', 1)
-    if len(parameters) == 2:
-        flag = parameters[1].strip().lower()
-        show_all = (flag == "completa")  # Once here, the only parameter must be valid
-        if not show_all:
-            # The parameter was something else...
+    args = (context.args or [])
+    if len(args) == 1:
+        flag = args[0].strip().lower()
+        if flag == "completa":
+            show_all = True
+        else:
             raise ValueError("Wrong parameter")
-    elif len(parameters) > 2:
-        # Too many parameters...
-        raise ValueError("Wrong parameter")
+    elif len(args) > 1:
+        raise ValueError("Too many parameters")
     return show_all
 
 
 @active_pycamp_needed
 async def show_wizards_schedule(update, context, pycamp=None):
     try:
-        show_all = aux_resolve_show_all(update.message)
+        show_all = aux_resolve_show_all(context)
     except ValueError:
         await context.bot.send_message(
             chat_id=update.message.chat_id,

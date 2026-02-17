@@ -145,17 +145,20 @@ class TestAuxResolveShowAll:
 
     @use_test_database_async
     async def test_no_parameter_returns_false(self):
-        msg = make_message(text="/ver_agenda_magx")
-        assert aux_resolve_show_all(msg) is False
+        context = make_context()
+        context.args = []
+        assert aux_resolve_show_all(context) is False
 
     @use_test_database_async
     async def test_completa_returns_true(self):
-        msg = make_message(text="/ver_agenda_magx completa")
-        assert aux_resolve_show_all(msg) is True
+        context = make_context()
+        context.args = ["completa"]
+        assert aux_resolve_show_all(context) is True
 
     @use_test_database_async
     async def test_wrong_parameter_raises(self):
         import pytest
-        msg = make_message(text="/ver_agenda_magx basura")
+        context = make_context()
+        context.args = ["basura"]
         with pytest.raises(ValueError):
-            aux_resolve_show_all(msg)
+            aux_resolve_show_all(context)
